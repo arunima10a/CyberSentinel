@@ -1,5 +1,7 @@
 FROM golang:1.25.1-alpine
 
+RUN apk add --no-cache nmap nmap-nselibs nmap-scripts
+
 WORKDIR /app
 
 COPY go.mod ./
