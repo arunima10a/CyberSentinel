@@ -19,6 +19,18 @@ services:
     networks:
       - cyber-net
 
+  traffic-analyzer:
+    build: ./analysis
+    volumes:
+      - ./evidence-vault:/app/evidence
+    networks:
+      - cyber-net
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - CAPTURE_INTERFACE=eth0
+
 networks:
   cyber-net:
     driver: bridge
