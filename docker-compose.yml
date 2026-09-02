@@ -8,6 +8,8 @@ services:
       dockerfile: cmd/Dockerfile
     ports:
       - "8080:8080"
+    volumes:
+      - ./evidence-vault:/app/evidence
     networks:
       - cyber-net
     depends_on:
