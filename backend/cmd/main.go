@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rsa"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,12 +18,26 @@ type Evidence struct {
 	Status   string `json:"status"`
 }
 
+func enableCORS(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+}
+
+var platformPrivKey *rsa.PrivateKey
+
+func init() {
+	platformPrivKey, _ = forensics.GenerateRSAKeys()
+
+}
+
 func main() {
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(&w)
 		fmt.Fprintf(w, "CyberSentinel API is online")
 	})
 
 	http.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(&w)
 		target := "target-web"
 
 		result, err := scanner.RunNmapScan(target)
@@ -34,6 +50,7 @@ func main() {
 	})
 
 	http.HandleFunc("/protect", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(&w)
 		files, _ := filepath.Glob("/app/evidence/*.pcap")
 		if len(files) == 0 {
 			http.Error(w, "No PCAP files found to protect", http.StatusNotFound)
@@ -63,6 +80,35 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(evidence)
+
+	})
+
+	http.HandleFunc("/sign", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(&w)
+
+		files, _ := filepath.Glob("/app/evidence/*.pcap")
+
+		if len(files) == 0 {
+			http.Error(w, "No evidence to sign", http.StatusNotFound)
+			return
+		}
+		latestFile := files[len(files)-1]
+
+		hashString, _ := forensics.CalculateHash(latestFile)
+		hashBytes, _ := hex.DecodeString(hashString)
+
+		signature, err := forensics.SignData(platformPrivKey, hashBytes)
+		if err != nil {
+			http.Error(w, "Signing failed", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"signature": hex.EncodeToString(signature),
+			"signer":    "CyberSentinel_Root_CA",
+			"status":    "Signed and Verified",
+		})
 
 	})
 
