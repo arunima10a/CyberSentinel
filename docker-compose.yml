@@ -10,6 +10,7 @@ services:
       - "8080:8080"
     volumes:
       - ./evidence-vault:/app/evidence
+      - ./analysis:/app/analysis
     networks:
       - cyber-net
     depends_on:
@@ -25,8 +26,7 @@ services:
     build: ./analysis
     volumes:
       - ./evidence-vault:/app/evidence
-    networks:
-      - cyber-net
+    network_mode: "service:target-web"
     cap_add:
       - NET_ADMIN
       - NET_RAW

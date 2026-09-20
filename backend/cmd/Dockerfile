@@ -1,6 +1,13 @@
 FROM golang:1.25.1-alpine
 
-RUN apk add --no-cache nmap nmap-nselibs nmap-scripts
+RUN apk update && apk add --no-cache \
+    nmap \
+    nmap-scripts \
+    python3 \
+    py3-pip \
+    tshark
+
+RUN pip install --no-cache-dir pyshark --break-system-packages
 
 WORKDIR /app
 

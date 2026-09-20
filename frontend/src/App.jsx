@@ -9,6 +9,8 @@ function App() {
   const [evidence, setEvidence] = useState(null);
   const [loading, setLoading] = useState(false);
   const [signature, setSignature] = useState(null);
+  const [incidents, setIncidents] = useState([]);
+  const [evaluating, setEvaluating] = useState(false);
 
   const runScan = async () => {
     setLoading(true);
@@ -36,6 +38,19 @@ function App() {
       setSignature(res.data);
     } catch (err) {
       alert("Signing failed.");
+    }
+  };
+
+  const fetchIncidents = async () => {
+    setEvaluating(true);
+    try {
+      const res = await axios.get(`${API_BASE}/incidents`);
+      setIncidents(res.data || []);
+    } catch (err) {
+      console.error("Incidents fetch error:", err);
+      alert("Failed to evaluate incidents. Check backend logs.");
+    } finally {
+      setEvaluating(false);
     }
   };
 
@@ -93,7 +108,7 @@ function App() {
             </h2>
             {scanResult ? (
               <pre className="overflow-x-auto rounded bg-black p-4 text-sm text-green-500 font-mono">
-                {scanResult.output}
+                {scanResult.raw}
               </pre>
             ) : (
               <div className="flex h-32 items-center justify-center text-slate-500 italic">
@@ -148,6 +163,57 @@ function App() {
               </div>
             </div>
           )}
+          <div className="mt-8 rounded-xl border border-red-500/30 bg-red-500/5 p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-red-400">
+                <AlertCircle /> Correlation Engine: Detected Incidents
+              </h2>
+              <button
+                onClick={fetchIncidents}
+                disabled={evaluating}
+                className="rounded bg-red-950 px-3 py-1 text-xs font-semibold text-red-300 border border-red-800 hover:bg-red-900 transition-all disabled:opacity-50"
+              >
+                {evaluating ? "Evaluating Packets..." : "Re-evaluate Rules"}
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {incidents.map((inc, i) => (
+                <div key={i} className="flex items-start justify-between border-l-4 border-red-500 bg-slate-900 p-4 rounded-r">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-red-100">{inc.type}</h3>
+                      <span className="text-xs text-slate-400">({inc.confidence}% confidence)</span>
+                    </div>
+
+                    {/* Render the dynamic real-world description */}
+                    {inc.description && (
+                      <p className="text-sm text-slate-300">{inc.description}</p>
+                    )}
+
+                    {/* Dynamic Evidence Tags */}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {inc.evidence_tags?.map((tag) => (
+                        <span key={tag} className="text-[11px] font-mono bg-red-950/80 text-red-300 px-2 py-0.5 rounded border border-red-800/60">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <span className="text-xs font-black px-2 py-1 rounded bg-red-950 text-red-400 border border-red-800">
+                    {inc.severity}
+                  </span>
+                </div>
+              ))}
+
+              {incidents.length === 0 && (
+                <div className="text-center py-6 text-slate-500 text-sm">
+                  No active incidents detected. Click "Re-evaluate Rules" after running a scan.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
