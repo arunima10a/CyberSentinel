@@ -6,6 +6,7 @@ import {
   Search,
   Terminal,
   AlertCircle,
+  Download,
 } from "lucide-react";
 import axios from "axios";
 
@@ -84,9 +85,7 @@ function App() {
   const runWebExploits = async () => {
     setExploitingWeb(true);
     try {
-      const res = await axios.get(
-        `${API_BASE}/scan/web`,
-      );
+      const res = await axios.get(`${API_BASE}/scan/web`);
       setWebFindings(res.data);
     } catch (err) {
       alert(err.response?.data || "Web vulnerability assessment failed.");
@@ -203,6 +202,28 @@ function App() {
       setAttacking(false);
     }
   };
+  const downloadReport = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/report/export`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `CyberSentinel_Forensic_Report_${Date.now()}.json`,
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      alert(
+        err.response?.data ||
+          "Access Denied: Only Investigator or Admin can export forensic reports.",
+      );
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 p-8 font-sans">
@@ -269,6 +290,13 @@ function App() {
               className="w-full flex items-center justify-center gap-2 rounded-lg border border-purple-700 bg-purple-900/20 px-4 py-3 font-semibold hover:bg-purple-800/30 transition-all text-purple-400"
             >
               Generate Digital Signature
+            </button>
+            <button
+              onClick={downloadReport}
+              className="w-full flex items-center justify-center gap-2 rounded-lg border border-cyan-700 bg-cyan-950/30 px-4 py-2.5 font-semibold hover:bg-cyan-900/40 transition-all text-cyan-300 text-xs"
+            >
+              <Download className="h-3.5 w-3.5" /> Export Court-Ready Forensic
+              Package
             </button>
           </div>
         </div>

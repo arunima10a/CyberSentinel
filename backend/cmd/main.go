@@ -2,16 +2,20 @@ package main
 
 import (
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
-	"github.com/arunima10a/cybersentinel/internal/auth"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/arunima10a/cybersentinel/internal/auth"
+	"github.com/arunima10a/cybersentinel/internal/db"
 
 	"github.com/arunima10a/cybersentinel/internal/correlation"
 	"github.com/arunima10a/cybersentinel/internal/forensics"
@@ -54,6 +58,7 @@ var (
 	analyzerURL     = envOrDefault("ANALYZER_URL", "http://target-web:5000")
 	analyzerClient  = &http.Client{Timeout: 5 * time.Minute}
 	rbacMgr         *auth.RBACManager
+	database        *db.Database
 )
 
 func envOrDefault(key, fallback string) string {
@@ -103,11 +108,39 @@ func requireAuth(w *http.ResponseWriter, r *http.Request, action string) (auth.U
 		return user, false
 	}
 
+	if database != nil {
+		auditEntry := rbacMgr.LogAction(user.Username, user.Role, action, r.URL.Path, "ALLOWED")
+		_ = database.SaveAuditLog(auditEntry)
+		return user, true
+	}
+
 	rbacMgr.LogAction(user.Username, user.Role, action, r.URL.Path, "ALLOWED")
 	return user, true
 }
+func getPublicPEM(privKey *rsa.PrivateKey) string {
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
+	if err != nil {
+		return ""
+	}
+	pemBlock := &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: pubKeyBytes,
+	}
+	return string(pem.EncodeToMemory(pemBlock))
+}
 
 func main() {
+
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://cybersentinel:sentinel_password_2026!@localhost:5432/cybersentinel_db?sslmode=disable"
+	}
+	var err error
+	database, err = db.Connect(dbURL)
+	if err != nil {
+		fmt.Println("Warning: Running without PostgreSQL persistence:", err)
+	}
+
 	if err := initializeForensics(); err != nil {
 		fmt.Printf("Forensics key initialization failed: %v\n", err)
 		os.Exit(1)
@@ -183,6 +216,7 @@ func main() {
 			http.Error(w, "Encryption failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 		keywords := []string{
 			"pcap",
 			"target-web",
@@ -204,6 +238,9 @@ func main() {
 		if err := encryptedIndex.IndexEvidence(filepath.Base(encryptedPath), keywords); err != nil {
 			http.Error(w, "Search index persistence failed: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if database != nil {
+			_ = database.SaveEvidenceRecord(filepath.Base(latestFile), filepath.Base(encryptedPath), hash, "", "SEALED_AES256_GCM")
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -330,6 +367,12 @@ func main() {
 
 		incidents := correlation.Correlate(openPorts, features)
 
+		if database != nil {
+			for _, inc := range incidents {
+				_ = database.SaveIncident(inc)
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(incidents)
 	})
@@ -387,6 +430,64 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
+	})
+
+	// 11. EXPORT SIGNED COURT-READY FORENSIC PACKAGE (Investigator, Auditor, Admin)
+	http.HandleFunc("/report/export", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(&w, r) {
+			return
+		}
+
+		if _, ok := requireAuth(&w, r, "action:protect"); !ok {
+			return
+		}
+
+		files, _ := filepath.Glob("/app/evidence/*.pcap")
+		latestFile := "none"
+		hash := "none"
+		if len(files) > 0 {
+			latestFile = filepath.Base(files[len(files)-1])
+			hash, _ = forensics.CalculateHash(files[len(files)-1])
+		}
+
+		hashBytes, _ := hex.DecodeString(hash)
+		sig, _ := forensics.SignData(platformPrivKey, hashBytes)
+
+		// Get all incidents from database or correlation
+		var incidents []correlation.Incident
+		if database != nil {
+			incidents, _ = database.GetIncidents()
+		}
+
+		// Get audit logs from database
+		var auditLogs []auth.AuditLogEntry
+		if database != nil {
+			auditLogs, _ = database.GetAuditLogs()
+		}
+
+		reportPackage := map[string]interface{}{
+			"platform":            "CyberSentinel Forensic Intelligence Platform",
+			"report_generated_at": time.Now().UTC().Format(time.RFC3339),
+			"case_reference":      fmt.Sprintf("CASE-%d", time.Now().Unix()),
+			"evidence_artifact": map[string]string{
+				"filename":       latestFile,
+				"encrypted_file": latestFile + ".enc",
+				"sha256_digest":  hash,
+				"cipher_mode":    "AES-256-GCM (Authenticated Encryption)",
+			},
+			"digital_signature": map[string]string{
+				"algorithm":  "RSA-2048 with SHA-256 (PKCS#1 v1.5)",
+				"signature":  hex.EncodeToString(sig),
+				"signer":     "CyberSentinel_Root_CA",
+				"public_key": getPublicPEM(platformPrivKey),
+			},
+			"incident_findings": incidents,
+			"audit_chain_trail": auditLogs,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", "attachment; filename=court_ready_forensic_report.json")
+		json.NewEncoder(w).Encode(reportPackage)
 	})
 
 	webScanHandler := func(w http.ResponseWriter, r *http.Request) {

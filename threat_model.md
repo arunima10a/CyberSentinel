@@ -1,0 +1,10 @@
+# CyberSentinel Threat Model & Security Posture (STRIDE)
+
+| Threat Category | Potential Attack Vector | CyberSentinel Defensive Countermeasure |
+| :--- | :--- | :--- |
+| **Spoofing (Identity)** | An unauthorized actor claims to be an Auditor or tries to submit fake scan results. | **Bearer Token RBAC:** All API requests must present a valid `X-Auth-Token`. Actions are validated against strict role profiles before execution. |
+| **Tampering (Data)** | A malicious insider edits a captured PCAP to remove proof of an intrusion. | **Dual Tamper Detection:**<br>1. **SHA-256 Digest:** Modifying any byte changes the digest completely.<br>2. **AES-GCM Auth Tag:** Ciphertext alterations trigger authentication failure upon decryption. |
+| **Repudiation** | An investigator denies generating a report, or an attacker claims evidence was forged by an external party. | **RSA-2048 Digital Signatures & Hash-Chained Audit Log:** Reports are signed with the platform's private key. Every action is recorded in an immutable audit chain linked by $\text{SHA-256}(\text{log}_i \parallel \text{hash}_{i-1})$. |
+| **Information Disclosure** | An unauthorized user or database leaker accesses raw packet captures containing cleartext passwords or network topology. | **AES-256-GCM Encryption & Searchable Blind Index:** Evidence is encrypted at rest. Keyword searching uses one-way HMAC trapdoors, ensuring queries can be matched without exposing plaintext in memory or on disk. |
+| **Denial of Service** | An attack simulation floods the host machine or escapes into the physical production network. | **Docker Bridge Network Isolation (`cyber-net`):** Targets and scanners live on a private, non-routable virtual subnet. Scans are bounded by timeouts and concurrency controls. |
+| **Elevation of Privilege** | A Security Analyst attempts to tamper with forensic evidence or view auditor trails. | **Principle of Least Privilege (PoLP):** Role capabilities are mutually exclusive where required. Analysts cannot seal evidence; Investigators cannot launch scans; Auditors have read-only access. |

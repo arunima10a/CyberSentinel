@@ -1,6 +1,20 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: cybersentinel
+      POSTGRES_PASSWORD: sentinel_password_2026!
+      POSTGRES_DB: cybersentinel_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - cyber-net
+    ports:
+      - "5432:5432"
   #  Go Backend
   api-gateway:
     build:
@@ -21,8 +35,10 @@ services:
     environment:
       - ANALYZER_URL=http://target-web:5000
       - CYBERSENTINEL_KEY_DIR=/app/secrets
+      - DATABASE_URL=postgres://cybersentinel:sentinel_password_2026!@db:5432/cybersentinel_db?sslmode=disable
     depends_on:
       - target-web
+      - db
       - traffic-analyzer
 
   # Vulnerable Target
@@ -47,6 +63,9 @@ services:
     build: ./lab-targets/ssh-target
     networks:
       - cyber-net
+      
+volumes:
+  postgres_data:
 
 networks:
   cyber-net:
