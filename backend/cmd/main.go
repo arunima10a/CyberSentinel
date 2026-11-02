@@ -135,6 +135,10 @@ func main() {
 		if target == "" {
 			target = "target-web"
 		}
+		if target != "target-web" && target != "target-ssh" {
+			http.Error(w, "Unsupported scan target", http.StatusBadRequest)
+			return
+		}
 
 		rawResult, err := scanner.RunTargetScan(target)
 		if err != nil {
@@ -384,6 +388,24 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
 	})
+
+	webScanHandler := func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(&w, r) {
+			return
+		}
+
+		if _, ok := requireAuth(&w, r, "action:scan"); !ok {
+			return
+		}
+
+		// Run automated vulnerability tests against target-web
+		results := scanner.RunWebSecurityAssessment("target-web")
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(results)
+	}
+	http.HandleFunc("/scan/web", webScanHandler)
+	http.HandleFunc("/attack/web", webScanHandler) // Backward-compatible alias.
 
 	fmt.Println("Server starting on : 8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

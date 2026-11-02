@@ -1,6 +1,9 @@
 package correlation
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type TrafficFeatures struct {
 	TotalPackets       int            `json:"total_packets"`
@@ -63,7 +66,6 @@ func Correlate(openPortCount int, traffic TrafficFeatures) []Incident {
 		}
 	}
 
-
 	// Triggered if Port 22 received high volume of connection attempts
 	for _, port := range traffic.UniqueDestPorts {
 		if port == 22 && traffic.TotalPackets >= 10 {
@@ -82,7 +84,23 @@ func Correlate(openPortCount int, traffic TrafficFeatures) []Incident {
 		}
 	}
 
-
+	// Mark traffic from this product's active web assessment without claiming
+	// that a vulnerability was confirmed solely from the User-Agent string.
+	for _, ua := range traffic.DetectedUserAgents {
+		if strings.HasPrefix(ua, "CyberSentinel-WebAssessment/") {
+			incidents = append(incidents, Incident{
+				Type:        "Web Security Assessment Traffic Observed",
+				Severity:    "INFO",
+				Confidence:  100,
+				Description: "CyberSentinel's web assessment requests were observed in the packet capture. Review the assessment results to confirm vulnerabilities.",
+				Evidence: []string{
+					"User-Agent: " + ua,
+					"Packet Capture: " + traffic.AnalyzedFile,
+				},
+			})
+			break
+		}
+	}
 
 	if openPortCount > 0 && traffic.TotalPackets > 0 {
 		incidents = append(incidents, Incident{

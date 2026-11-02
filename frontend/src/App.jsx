@@ -25,6 +25,8 @@ function App() {
   const [selectedTarget, setSelectedTarget] = useState("target-web");
   const [attackResult, setAttackResult] = useState(null);
   const [attacking, setAttacking] = useState(false);
+  const [webFindings, setWebFindings] = useState(null);
+  const [exploitingWeb, setExploitingWeb] = useState(false);
 
   const [sparkLoading, setSparkLoading] = useState(false);
   const [apiOnline, setApiOnline] = useState(false);
@@ -77,6 +79,19 @@ function App() {
       );
     } finally {
       setSparkLoading(false);
+    }
+  };
+  const runWebExploits = async () => {
+    setExploitingWeb(true);
+    try {
+      const res = await axios.get(
+        `${API_BASE}/scan/web`,
+      );
+      setWebFindings(res.data);
+    } catch (err) {
+      alert(err.response?.data || "Web vulnerability assessment failed.");
+    } finally {
+      setExploitingWeb(false);
     }
   };
 
@@ -176,7 +191,6 @@ function App() {
       );
     }
   };
-
 
   const runSSHAttack = async () => {
     setAttacking(true);
@@ -323,6 +337,92 @@ function App() {
               ? "Simulating Attack..."
               : "Simulate SSH Brute-Force Attack"}
           </button>
+          <button
+            onClick={runWebExploits}
+            disabled={exploitingWeb}
+            className="w-full flex items-center justify-center gap-2 rounded-lg border border-purple-600 bg-purple-950/40 px-4 py-2.5 font-semibold hover:bg-purple-900/50 transition-all text-purple-300 text-xs disabled:opacity-50"
+          >
+            <Shield className="h-3.5 w-3.5" />
+            {exploitingWeb
+              ? "Auditing Vulnerabilities..."
+              : "Launch Web Exploit Assessment (RCE/SQLi)"}
+          </button>
+
+          {/* Confirmed High-Severity Web Exploits */}
+          {webFindings && (
+            <div className="rounded-xl border border-red-500/40 bg-slate-900 p-6 shadow-2xl">
+              <div className="mb-4 flex items-center justify-between border-b border-slate-800 pb-3">
+                <div>
+                  <h2 className="text-xl font-bold text-red-400 flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-red-500" /> Confirmed
+                    Exploitable Vulnerabilities (
+                    {webFindings.findings?.length || 0})
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Automated CVSS-rated vulnerability verification report
+                  </p>
+                </div>
+                <span className="text-xs font-mono bg-red-950 text-red-300 px-3 py-1 rounded border border-red-800 font-bold">
+                  {webFindings.errors?.length
+                    ? "ASSESSMENT INCOMPLETE"
+                    : webFindings.findings?.length
+                      ? "VULNERABILITIES FOUND"
+                      : "NO VULNERABILITIES FOUND"}
+                </span>
+              </div>
+
+              {webFindings.errors?.length > 0 && (
+                <div className="mb-4 rounded border border-amber-700 bg-amber-950/30 p-3 text-xs text-amber-300">
+                  Some checks could not run: {webFindings.errors.join("; ")}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {(webFindings.findings || []).map((vuln, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg bg-slate-950 border border-red-900/60 p-4 space-y-2"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2">
+                          {vuln.vulnerability}
+                        </h3>
+                        <span className="text-xs font-mono text-purple-400">
+                          Endpoint: {vuln.endpoint}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="px-2.5 py-0.5 rounded text-xs font-extrabold bg-red-950 text-red-400 border border-red-800">
+                          {vuln.severity}
+                        </span>
+                        <p className="text-[10px] text-slate-500 font-mono mt-1">
+                          CVSS: {vuln.cvss_score}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-xs bg-slate-900 p-2.5 rounded border border-slate-800 space-y-1">
+                      <div className="flex gap-2">
+                        <span className="text-slate-500">Payload:</span>
+                        <code className="text-amber-400 font-mono">
+                          {vuln.payload_used}
+                        </code>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-slate-500">
+                          Proof of Concept:
+                        </span>
+                        <pre className="text-green-400 font-mono text-[11px] whitespace-pre-wrap bg-black/60 p-2 rounded max-h-24 overflow-y-auto">
+                          {vuln.evidence}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Searchable Encrypted Vault Query */}
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">

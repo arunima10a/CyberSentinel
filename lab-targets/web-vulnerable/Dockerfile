@@ -1,6 +1,11 @@
-FROM nginx:alpine
+FROM python:3.11-alpine
 
-COPY index.html /usr/share/nginx/html/index.html
+WORKDIR /app
 
-RUN echo "CTF{BREAD_AND_BUTTER}" > /usr/share/nginx/html/secret.txt
+RUN pip install --no-cache-dir flask
+
+COPY app.py .
+
 EXPOSE 80
+
+CMD ["python", "app.py"]
