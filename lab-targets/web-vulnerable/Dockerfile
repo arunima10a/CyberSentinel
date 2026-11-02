@@ -1,11 +1,10 @@
-FROM python:3.11-alpine
+FROM php:8.2-apache
 
-WORKDIR /app
+# Copy vulnerable web application files
+COPY . /var/www/html/
 
-RUN pip install --no-cache-dir flask
-
-COPY app.py .
+# Create a sensitive system flag on the server to prove RCE
+RUN echo "CYBERSENTINEL{ROOT_LEVEL_RCE_EXPLOIT_CONFIRMED}" > /etc/flag.txt && \
+    chmod 644 /etc/flag.txt
 
 EXPOSE 80
-
-CMD ["python", "app.py"]

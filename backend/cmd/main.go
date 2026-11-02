@@ -499,14 +499,24 @@ func main() {
 			return
 		}
 
-		// Run automated vulnerability tests against target-web
-		results := scanner.RunWebSecurityAssessment("target-web")
+		target := r.URL.Query().Get("target")
+		if target == "" {
+			target = "target-web"
+		}
+		if target != "target-web" {
+			http.Error(w, "Unsupported web assessment target", http.StatusBadRequest)
+			return
+		}
+
+		report := scanner.RunWebExploitAssessment(target)
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(results)
+		json.NewEncoder(w).Encode(report)
 	}
+	// Keep both route names available: the frontend calls /scan/web, while
+	// older clients may still use /attack/web.
 	http.HandleFunc("/scan/web", webScanHandler)
-	http.HandleFunc("/attack/web", webScanHandler) // Backward-compatible alias.
+	http.HandleFunc("/attack/web", webScanHandler)
 
 	fmt.Println("Server starting on : 8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

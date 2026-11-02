@@ -1,8 +1,6 @@
 package scanner
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,122 +9,148 @@ import (
 	"time"
 )
 
-type WebFinding struct {
-	Vulnerability string  `json:"vulnerability"`
-	Severity      string  `json:"severity"`
-	Endpoint      string  `json:"endpoint"`
-	PayloadUsed   string  `json:"payload_used"`
-	Evidence      string  `json:"evidence"`
-	CVSSScore     float64 `json:"cvss_score"`
+type VulnerabilityFinding struct {
+	Name     string `json:"name"`
+	Severity string `json:"severity"`
+	CVSS     string `json:"cvss"`
+	Endpoint string `json:"endpoint"`
+	Payload  string `json:"payload"`
+	Proof    string `json:"proof"`
+	Status   string `json:"status"`
 }
 
-type WebAssessmentResult struct {
-	Target       string       `json:"target"`
-	Findings     []WebFinding `json:"findings"`
-	Errors       []string     `json:"errors"`
-	Duration     string       `json:"duration"`
-	TotalChecked int          `json:"total_checked"`
+type WebAssessmentCheck struct {
+	Name     string `json:"name"`
+	Endpoint string `json:"endpoint"`
+	Status   string `json:"status"`
+	Detail   string `json:"detail"`
 }
 
-func webAssessmentRequest(client *http.Client, method, requestURL string, body io.Reader) (*http.Response, error) {
-	req, err := http.NewRequest(method, requestURL, body)
-	if err != nil {
-		return nil, err
+type WebAssessmentReport struct {
+	Target               string                 `json:"target"`
+	Timestamp            time.Time              `json:"timestamp"`
+	TotalVulnerabilities int                    `json:"total_vulnerabilities"`
+	Findings             []VulnerabilityFinding `json:"findings"`
+	Checks               []WebAssessmentCheck   `json:"checks"`
+	Errors               []string               `json:"errors"`
+}
+
+// RunWebExploitAssessment checks the intentionally vulnerable local web target.
+func RunWebExploitAssessment(target string) WebAssessmentReport {
+	report := WebAssessmentReport{
+		Target:    target,
+		Timestamp: time.Now().UTC(),
+		Findings:  make([]VulnerabilityFinding, 0),
+		Checks:    make([]WebAssessmentCheck, 0, 6),
+		Errors:    make([]string, 0),
 	}
-	req.Header.Set("User-Agent", "CyberSentinel-WebAssessment/1.0")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	return client.Do(req)
-}
 
-// RunWebSecurityAssessment tests target-web for RCE, SQLi, and Path Traversal
-func RunWebSecurityAssessment(target string) WebAssessmentResult {
-	start := time.Now()
-	baseURL := fmt.Sprintf("http://%s:80", target)
+	baseURL := target
+	if !strings.Contains(baseURL, "://") {
+		baseURL = "http://" + baseURL
+	}
+	parsedBase, err := url.Parse(baseURL)
+	if err != nil || parsedBase.Host == "" || (parsedBase.Scheme != "http" && parsedBase.Scheme != "https") {
+		report.Errors = append(report.Errors, "Invalid assessment target URL")
+		report.TotalVulnerabilities = 0
+		return report
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	findings := make([]WebFinding, 0)
-	assessmentErrors := make([]string, 0)
-
-	// 1. TEST COMMAND INJECTION (RCE)
-	rcePayload := "whoami; uname -a"
-	rceResp, err := webAssessmentRequest(client, http.MethodGet, fmt.Sprintf("%s/api/exec?cmd=%s", baseURL, url.QueryEscape(rcePayload)), nil)
-	if err == nil {
-		defer rceResp.Body.Close()
-	} else {
-		assessmentErrors = append(assessmentErrors, "Command injection check: "+err.Error())
-	}
-	if err == nil && rceResp.StatusCode == http.StatusOK {
-		body, _ := io.ReadAll(rceResp.Body)
-		var result struct {
-			Status string `json:"status"`
-			Output string `json:"output"`
+	probe := func(name, endpoint string, params url.Values, finding VulnerabilityFinding, verify func(string) (bool, string)) {
+		check := WebAssessmentCheck{Name: name, Endpoint: endpoint}
+		targetURL := baseURL + endpoint
+		if len(params) > 0 {
+			targetURL += "?" + params.Encode()
 		}
-		if json.Unmarshal(body, &result) == nil && result.Status == "executed" && strings.TrimSpace(result.Output) != "" {
-			findings = append(findings, WebFinding{
-				Vulnerability: "OS Command Injection (Remote Code Execution)",
-				Severity:      "CRITICAL",
-				Endpoint:      "/api/exec?cmd=",
-				PayloadUsed:   rcePayload,
-				Evidence:      fmt.Sprintf("Arbitrary OS execution confirmed. Server output: %s", strings.TrimSpace(string(body))),
-				CVSSScore:     9.8,
-			})
+		resp, err := client.Get(targetURL)
+		if err != nil {
+			check.Status = "ERROR"
+			check.Detail = err.Error()
+			report.Errors = append(report.Errors, fmt.Sprintf("%s: %s", name, err))
+			report.Checks = append(report.Checks, check)
+			return
 		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if readErr != nil {
+			check.Status = "ERROR"
+			check.Detail = "Could not read target response: " + readErr.Error()
+			report.Errors = append(report.Errors, fmt.Sprintf("%s: %s", name, readErr))
+			report.Checks = append(report.Checks, check)
+			return
+		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusBadRequest {
+			check.Status = "ERROR"
+			check.Detail = fmt.Sprintf("Target returned HTTP %d; check that %s is served by the target container", resp.StatusCode, endpoint)
+			report.Errors = append(report.Errors, fmt.Sprintf("%s returned HTTP %d", endpoint, resp.StatusCode))
+			report.Checks = append(report.Checks, check)
+			return
+		}
+
+		bodyText := string(body)
+		if vulnerable, proof := verify(bodyText); vulnerable {
+			finding.Endpoint = endpoint
+			finding.Proof = proof
+			finding.Status = "EXPLOITED_VERIFIED"
+			report.Findings = append(report.Findings, finding)
+			check.Status = "VULNERABLE"
+			check.Detail = "The test payload was confirmed in the target response."
+		} else {
+			check.Status = "NOT_DETECTED"
+			check.Detail = "The endpoint responded, but the test did not confirm this vulnerability."
+		}
+		report.Checks = append(report.Checks, check)
 	}
 
-	// 2. TEST SQL INJECTION (SQLi Auth Bypass)
-	sqliPayload := "' OR '1'='1' -- "
-	reqBody, _ := json.Marshal(map[string]string{
-		"username": sqliPayload,
-		"password": "random_password",
+	rcePayload := "printf CYBERSENTINEL_RCE_PROBE"
+	rceParams := url.Values{"cmd": {rcePayload}}
+	probe("OS command injection", "/os.php", rceParams, VulnerabilityFinding{
+		Name: "OS Command Injection (Remote Code Execution)", Severity: "CRITICAL", CVSS: "9.8", Payload: rcePayload,
+	}, func(body string) (bool, string) {
+		return strings.Contains(body, "CYBERSENTINEL_RCE_PROBE"), strings.TrimSpace(body)
 	})
-	sqliResp, err := webAssessmentRequest(client, http.MethodPost, fmt.Sprintf("%s/api/login", baseURL), bytes.NewBuffer(reqBody))
-	if err == nil {
-		defer sqliResp.Body.Close()
-	} else {
-		assessmentErrors = append(assessmentErrors, "SQL injection check: "+err.Error())
-	}
-	if err == nil && sqliResp.StatusCode == http.StatusOK {
-		body, _ := io.ReadAll(sqliResp.Body)
-		if strings.Contains(string(body), "Welcome back") {
-			findings = append(findings, WebFinding{
-				Vulnerability: "SQL Injection Authentication Bypass",
-				Severity:      "HIGH",
-				Endpoint:      "/api/login (POST)",
-				PayloadUsed:   sqliPayload,
-				Evidence:      "Authentication successfully bypassed without credentials. Admin record returned.",
-				CVSSScore:     8.5,
-			})
-		}
-	}
 
-	// 3. TEST PATH TRAVERSAL / LFI
-	lfiPayload := "/etc/passwd"
-	lfiResp, err := webAssessmentRequest(client, http.MethodGet, fmt.Sprintf("%s/api/view?file=%s", baseURL, url.QueryEscape(lfiPayload)), nil)
-	if err == nil {
-		defer lfiResp.Body.Close()
-	} else {
-		assessmentErrors = append(assessmentErrors, "Path traversal check: "+err.Error())
-	}
-	if err == nil && lfiResp.StatusCode == http.StatusOK {
-		body, _ := io.ReadAll(lfiResp.Body)
-		if strings.Contains(string(body), "root:") {
-			findings = append(findings, WebFinding{
-				Vulnerability: "Arbitrary File Read / Path Traversal",
-				Severity:      "HIGH",
-				Endpoint:      "/api/view?file=",
-				PayloadUsed:   lfiPayload,
-				Evidence:      "System file /etc/passwd leaked through unvalidated parameter.",
-				CVSSScore:     7.5,
-			})
-		}
-	}
+	sqliPayload := "' OR '1'='1' -- "
+	sqliParams := url.Values{"username": {sqliPayload}, "password": {"invalid"}}
+	probe("SQL injection", "/sql.php", sqliParams, VulnerabilityFinding{
+		Name: "SQL Injection Authentication Bypass", Severity: "HIGH", CVSS: "8.5", Payload: sqliPayload,
+	}, func(body string) (bool, string) {
+		return strings.Contains(body, `"status":"AUTHENTICATED"`) && strings.Contains(body, "admin"), strings.TrimSpace(body)
+	})
 
-	return WebAssessmentResult{
-		Target:       target,
-		Findings:     findings,
-		Errors:       assessmentErrors,
-		Duration:     time.Since(start).String(),
-		TotalChecked: 3,
-	}
+	pathPayload := "/etc/passwd"
+	pathParams := url.Values{"file": {pathPayload}}
+	probe("Path traversal / local file read", "/path.php", pathParams, VulnerabilityFinding{
+		Name: "Arbitrary File Read / Path Traversal", Severity: "HIGH", CVSS: "7.5", Payload: pathPayload,
+	}, func(body string) (bool, string) {
+		return strings.Contains(body, "root:x:0:0:"), "The response contains the root account entry from /etc/passwd."
+	})
+
+	ssrfPayload := "http://127.0.0.1/"
+	ssrfParams := url.Values{"url": {ssrfPayload}}
+	probe("Server-side request forgery", "/ssrf.php", ssrfParams, VulnerabilityFinding{
+		Name: "Server-Side Request Forgery (SSRF)", Severity: "HIGH", CVSS: "8.6", Payload: ssrfPayload,
+	}, func(body string) (bool, string) {
+		return strings.Contains(body, "SSRF_FETCH_SUCCESS") && strings.Contains(body, "Welcome to the Internal Lab"), strings.TrimSpace(body)
+	})
+
+	idorParams := url.Values{"user_id": {"1"}}
+	probe("Insecure direct object reference", "/profile.php", idorParams, VulnerabilityFinding{
+		Name: "Insecure Direct Object Reference (IDOR)", Severity: "HIGH", CVSS: "8.1", Payload: "user_id=1",
+	}, func(body string) (bool, string) {
+		return strings.Contains(body, "FLAG{IDOR_ADMIN_DATA_LEAKED}") || strings.Contains(body, "SEC_KEY_live"), strings.TrimSpace(body)
+	})
+
+	xssPayload := "<script>alert('CYBERSENTINEL_XSS')</script>"
+	xssParams := url.Values{"q": {xssPayload}}
+	probe("Reflected cross-site scripting", "/search.php", xssParams, VulnerabilityFinding{
+		Name: "Reflected Cross-Site Scripting (XSS)", Severity: "MEDIUM", CVSS: "7.2", Payload: xssPayload,
+	}, func(body string) (bool, string) {
+		return strings.Contains(body, xssPayload), "The raw script payload was reflected in the HTML response."
+	})
+
+	report.TotalVulnerabilities = len(report.Findings)
+	return report
 }

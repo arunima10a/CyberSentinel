@@ -55,6 +55,15 @@ func RunSSHBruteForce(target string) AttackResult {
 
 // RunTargetScan runs nmap against any chosen target with packet capture
 func RunTargetScan(target string) (ScanResult, error) {
+	ports := map[string]string{
+		"target-web": "80",
+		"target-ssh": "22",
+	}
+	port, ok := ports[target]
+	if !ok {
+		return ScanResult{Target: target, Status: "Failed"}, fmt.Errorf("unsupported scan target %q", target)
+	}
+
 	timestamp := time.Now().Format("20060102_150405")
 	pcapPath := fmt.Sprintf("/app/evidence/capture_%s_%s.pcap", target, timestamp)
 
@@ -62,7 +71,9 @@ func RunTargetScan(target string) (ScanResult, error) {
 	_ = captureCmd.Start()
 	time.Sleep(500 * time.Millisecond)
 
-	scanCmd := exec.Command("nmap", "-sV", "-p-", "--top-ports", "100", target)
+	// Scan the service port used by the selected lab target. -Pn avoids Nmap
+	// skipping containers that don't answer host-discovery probes.
+	scanCmd := exec.Command("nmap", "-sV", "-Pn", "-p", port, target)
 	output, scanErr := scanCmd.CombinedOutput()
 
 	if captureCmd.Process != nil {

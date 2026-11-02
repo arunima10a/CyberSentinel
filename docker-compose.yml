@@ -38,6 +38,7 @@ services:
       - DATABASE_URL=postgres://cybersentinel:sentinel_password_2026!@db:5432/cybersentinel_db?sslmode=disable
     depends_on:
       - target-web
+      - target-ssh
       - db
       - traffic-analyzer
 
