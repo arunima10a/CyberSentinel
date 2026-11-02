@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/arunima10a/cybersentinel/internal/auth"
 	"io"
 	"net/http"
 	"os"
@@ -33,7 +34,7 @@ type Incident struct {
 func enableCORS(w *http.ResponseWriter, r *http.Request) bool {
 	(*w).Header().Set("Access-Control-Allow-Origin", "*")
 	(*w).Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token")
 
 	if r.Method == "OPTIONS" {
 		(*w).WriteHeader(http.StatusOK)
@@ -52,6 +53,7 @@ var (
 	keyDir          = envOrDefault("CYBERSENTINEL_KEY_DIR", "./secrets")
 	analyzerURL     = envOrDefault("ANALYZER_URL", "http://target-web:5000")
 	analyzerClient  = &http.Client{Timeout: 5 * time.Minute}
+	rbacMgr         *auth.RBACManager
 )
 
 func envOrDefault(key, fallback string) string {
@@ -77,6 +79,32 @@ func initializeForensics() error {
 	}
 	encryptedIndex, err = forensics.LoadSearchableIndex(searchKey, filepath.Join(keyDir, "search-index.json"))
 	return err
+
+}
+
+func requireAuth(w *http.ResponseWriter, r *http.Request, action string) (auth.User, bool) {
+	token := r.Header.Get("X-Auth-Token")
+	if token == "" {
+		rbacMgr.LogAction("anonymous", "unknown", action, r.URL.Path, "DENIED_UNAUTHENTICATED")
+		http.Error(*w, "Unauthorized: Missing token", http.StatusUnauthorized)
+		return auth.User{}, false
+	}
+
+	user, ok := rbacMgr.Authenticate(token)
+	if !ok {
+		rbacMgr.LogAction("anonymous", "unknown", action, r.URL.Path, "DENIED_UNAUTHENTICATED")
+		http.Error(*w, "Unauthorized: Invalid or missing token", http.StatusUnauthorized)
+		return user, false
+	}
+
+	if !rbacMgr.Authorize(user.Role, action) {
+		rbacMgr.LogAction(user.Username, user.Role, action, r.URL.Path, "DENIED_FORBIDDEN")
+		http.Error(*w, fmt.Sprintf("Forbidden: Role '%s' does not have permission for '%s'", user.Role, action), http.StatusForbidden)
+		return user, false
+	}
+
+	rbacMgr.LogAction(user.Username, user.Role, action, r.URL.Path, "ALLOWED")
+	return user, true
 }
 
 func main() {
@@ -84,6 +112,7 @@ func main() {
 		fmt.Printf("Forensics key initialization failed: %v\n", err)
 		os.Exit(1)
 	}
+	rbacMgr = auth.NewRBACManager()
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(&w, r) {
@@ -95,6 +124,9 @@ func main() {
 
 	http.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(&w, r) {
+			return
+		}
+		if _, ok := requireAuth(&w, r, "action:scan"); !ok {
 			return
 		}
 		target := "target-web"
@@ -116,6 +148,9 @@ func main() {
 
 	http.HandleFunc("/protect", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(&w, r) {
+			return
+		}
+		if _, ok := requireAuth(&w, r, "action:protect"); !ok {
 			return
 		}
 		files, _ := filepath.Glob("/app/evidence/*.pcap")
@@ -175,6 +210,9 @@ func main() {
 		if enableCORS(&w, r) {
 			return
 		}
+		if _, ok := requireAuth(&w, r, "action:sign"); !ok {
+			return
+		}
 
 		files, err := filepath.Glob("/app/evidence/*.pcap")
 		if err != nil {
@@ -222,6 +260,9 @@ func main() {
 		if enableCORS(&w, r) {
 			return
 		}
+		if _, ok := requireAuth(&w, r, "action:search"); !ok {
+			return
+		}
 
 		query := r.URL.Query().Get("q")
 		if query == "" {
@@ -243,6 +284,9 @@ func main() {
 
 	http.HandleFunc("/incidents", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(&w, r) {
+			return
+		}
+		if _, ok := requireAuth(&w, r, "action:analytics"); !ok {
 			return
 		}
 
@@ -285,6 +329,9 @@ func main() {
 		if enableCORS(&w, r) {
 			return
 		}
+		if _, ok := requireAuth(&w, r, "action:analytics"); !ok {
+			return
+		}
 
 		resp, err := analyzerClient.Get(analyzerURL + "/spark")
 		if err != nil {
@@ -297,9 +344,25 @@ func main() {
 		if contentType == "" {
 			contentType = "application/json"
 		}
+
 		w.Header().Set("Content-Type", contentType)
 		w.WriteHeader(resp.StatusCode)
 		io.Copy(w, resp.Body)
+	})
+
+	// 8. HASH-CHAINED AUDIT LOG TRAIL
+	http.HandleFunc("/audit", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(&w, r) {
+			return
+		}
+
+		if _, ok := requireAuth(&w, r, "action:audit"); !ok {
+			return
+		}
+
+		logs := rbacMgr.GetAuditLogs()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(logs)
 	})
 
 	fmt.Println("Server starting on : 8080...")

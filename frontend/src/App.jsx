@@ -25,6 +25,24 @@ function App() {
 
   const [sparkLoading, setSparkLoading] = useState(false);
   const [apiOnline, setApiOnline] = useState(false);
+  const [currentUser, setCurrentUser] = useState({
+    username: "admin_root",
+    role: "admin",
+    token: "token_admin_root",
+  });
+  const [auditLogs, setAuditLogs] = useState([]);
+
+  useEffect(() => {
+    const interceptorId = axios.interceptors.request.use((config) => {
+      if (currentUser?.token) {
+        config.headers = config.headers ?? {};
+        config.headers["X-Auth-Token"] = currentUser.token;
+      }
+      return config;
+    });
+
+    return () => axios.interceptors.request.eject(interceptorId);
+  }, [currentUser]);
 
   useEffect(() => {
     let active = true;
@@ -75,7 +93,7 @@ function App() {
       const res = await axios.get(`${API_BASE}/protect`);
       setEvidence(res.data);
     } catch (err) {
-      alert("No evidence found to protect.");
+      alert(err.response?.data || "Protection failed.");
     }
   };
 
@@ -117,20 +135,82 @@ function App() {
     }
   };
 
+  const switchRole = (role) => {
+    const roleTokens = {
+      admin: {
+        username: "admin_root",
+        role: "admin",
+        token: "token_admin_root",
+      },
+      analyst: {
+        username: "analyst_alice",
+        role: "analyst",
+        token: "token_analyst_123",
+      },
+      investigator: {
+        username: "investigator_bob",
+        role: "investigator",
+        token: "token_investigator_456",
+      },
+      auditor: {
+        username: "auditor_clara",
+        role: "auditor",
+        token: "token_auditor_789",
+      },
+    };
+    setCurrentUser(roleTokens[role]);
+  };
+
+  const fetchAuditLogs = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/audit`);
+      setAuditLogs(res.data);
+    } catch (err) {
+      alert(
+        err.response?.data ||
+          "Access Denied: Only Auditor or Admin can view audit logs.",
+      );
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 p-8 font-sans">
-      {/* Header */}
-      <header className="mb-12 flex items-center justify-between border-b border-slate-800 pb-6">
+      {/* Header with Title and Role Selector */}
+      <header className="mb-12 flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-6">
         <div className="flex items-center gap-3">
           <Shield className="h-10 w-10 text-blue-500" />
-          <h1 className="text-3xl font-bold tracking-tight">CyberSentinel</h1>
-        </div>
-        <div className="flex gap-4">
-          <div className={`flex items-center gap-2 rounded-full px-4 py-1 text-sm font-medium border ${apiOnline ? "bg-green-500/10 text-green-400 border-green-500/20" : "bg-red-500/10 text-red-400 border-red-500/20"}`}>
-            <span className={`h-2 w-2 rounded-full ${apiOnline ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
-            {apiOnline ? "System Online" : "API Offline"}
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">CyberSentinel</h1>
+            <p className="text-xs text-slate-400">
+              Security Assessment & Forensic Platform
+            </p>
           </div>
         </div>
+
+        {/* --- ROLE SELECTOR STARTS HERE --- */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-400 font-medium">
+            Active Persona:
+          </span>
+          <select
+            value={currentUser.role}
+            onChange={(e) => switchRole(e.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none"
+          >
+            <option value="admin">Admin (admin_root) - Global</option>
+            <option value="analyst">
+              Security Analyst (Alice) - Scan/Analyze
+            </option>
+            <option value="investigator">
+              Forensic Investigator (Bob) - Evidence/Search
+            </option>
+            <option value="auditor">Auditor (Clara) - Read-only Audit</option>
+          </select>
+          <span className="text-xs px-2.5 py-1 rounded-full font-mono bg-blue-950 text-blue-300 border border-blue-800">
+            Role: {currentUser.role.toUpperCase()}
+          </span>
+        </div>
+        {/* --- ROLE SELECTOR ENDS HERE --- */}
       </header>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
@@ -496,7 +576,85 @@ function App() {
           </div>
         </div>
       </div>
+      <AuditTrail auditLogs={auditLogs} fetchAuditLogs={fetchAuditLogs} />
     </div>
+  );
+}
+
+function AuditTrail({ auditLogs, fetchAuditLogs }) {
+  return (
+<div className="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-6">
+  <div className="mb-4 flex items-center justify-between border-b border-slate-800 pb-4">
+    <div>
+      <h2 className="text-xl font-semibold text-slate-200 flex items-center gap-2">
+        <Lock className="h-5 w-5 text-cyan-400" /> Immutable Hash-Chained Audit
+        Trail
+      </h2>
+      <p className="text-xs text-slate-400">
+        Cryptographically chained activity log (SHA-256 previous-hash
+        verification)
+      </p>
+    </div>
+    <button
+      onClick={fetchAuditLogs}
+      className="rounded bg-cyan-950 px-3 py-1.5 text-xs font-semibold text-cyan-300 border border-cyan-800 hover:bg-cyan-900 transition-all"
+    >
+      Refresh Audit Logs
+    </button>
+  </div>
+
+  {auditLogs.length > 0 ? (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-xs font-mono">
+        <thead className="bg-slate-950 text-slate-400 uppercase">
+          <tr>
+            <th className="p-3">#</th>
+            <th className="p-3">Timestamp</th>
+            <th className="p-3">User (Role)</th>
+            <th className="p-3">Action</th>
+            <th className="p-3">Status</th>
+            <th className="p-3">Current Hash (SHA-256)</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-800 text-slate-300">
+          {auditLogs.map((log) => (
+            <tr key={log.index} className="hover:bg-slate-800/40">
+              <td className="p-3 font-bold text-slate-500">{log.index}</td>
+              <td className="p-3 text-slate-400">
+                {new Date(log.timestamp).toLocaleTimeString()}
+              </td>
+              <td className="p-3 font-bold text-blue-400">
+                {log.username} ({log.role})
+              </td>
+              <td className="p-3">{log.action}</td>
+              <td className="p-3">
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    log.status === "ALLOWED"
+                      ? "bg-green-950 text-green-400 border border-green-800"
+                      : "bg-red-950 text-red-400 border border-red-800"
+                  }`}
+                >
+                  {log.status}
+                </span>
+              </td>
+              <td
+                className="p-3 truncate max-w-xs text-slate-400"
+                title={log.current_hash}
+              >
+                {(log.current_hash || "").substring(0, 16)}...
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <div className="text-center py-6 text-slate-500 text-sm">
+      Click "Refresh Audit Logs" to load the immutable audit chain.
+    </div>
+  )}
+</div>
   );
 }
 
