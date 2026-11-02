@@ -63,6 +63,27 @@ func Correlate(openPortCount int, traffic TrafficFeatures) []Incident {
 		}
 	}
 
+
+	// Triggered if Port 22 received high volume of connection attempts
+	for _, port := range traffic.UniqueDestPorts {
+		if port == 22 && traffic.TotalPackets >= 10 {
+			incidents = append(incidents, Incident{
+				Type:        "SSH Credential Brute-Force Attack",
+				Severity:    "HIGH",
+				Confidence:  91,
+				Description: fmt.Sprintf("High-frequency TCP connection burst to Port 22 (SSH) from %s with multiple failed handshakes.", traffic.TargetIP),
+				Evidence: []string{
+					"Target Port: 22 (SSH)",
+					fmt.Sprintf("Traffic Volume: %d packets", traffic.TotalPackets),
+					"Pattern: Repeated Authentication Handshake Failures",
+				},
+			})
+			break
+		}
+	}
+
+
+
 	if openPortCount > 0 && traffic.TotalPackets > 0 {
 		incidents = append(incidents, Incident{
 			Type:        "Exposed Service Attack Surface",

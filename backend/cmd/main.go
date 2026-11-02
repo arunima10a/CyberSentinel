@@ -126,16 +126,22 @@ func main() {
 		if enableCORS(&w, r) {
 			return
 		}
+
 		if _, ok := requireAuth(&w, r, "action:scan"); !ok {
 			return
 		}
-		target := "target-web"
 
-		rawResult, err := scanner.RunNmapScanWithCapture(target)
+		target := r.URL.Query().Get("target")
+		if target == "" {
+			target = "target-web"
+		}
+
+		rawResult, err := scanner.RunTargetScan(target)
 		if err != nil {
 			http.Error(w, "Scan failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 		parsed := scanner.ParseNmapOutput(target, rawResult.Output)
 
 		latestScanLock.Lock()
@@ -363,6 +369,20 @@ func main() {
 		logs := rbacMgr.GetAuditLogs()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(logs)
+	})
+	http.HandleFunc("/attack/ssh", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(&w, r) {
+			return
+		}
+
+		if _, ok := requireAuth(&w, r, "action:scan"); !ok {
+			return
+		}
+
+		result := scanner.RunSSHBruteForce("target-ssh")
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
 	})
 
 	fmt.Println("Server starting on : 8080...")

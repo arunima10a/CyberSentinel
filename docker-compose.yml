@@ -43,6 +43,11 @@ services:
     environment:
       - CAPTURE_INTERFACE=eth0
 
+  target-ssh:
+    build: ./lab-targets/ssh-target
+    networks:
+      - cyber-net
+
 networks:
   cyber-net:
     driver: bridge

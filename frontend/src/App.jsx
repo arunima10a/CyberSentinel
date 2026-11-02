@@ -22,6 +22,9 @@ function App() {
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const [sparkData, setSparkData] = useState(null);
+  const [selectedTarget, setSelectedTarget] = useState("target-web");
+  const [attackResult, setAttackResult] = useState(null);
+  const [attacking, setAttacking] = useState(false);
 
   const [sparkLoading, setSparkLoading] = useState(false);
   const [apiOnline, setApiOnline] = useState(false);
@@ -80,12 +83,13 @@ function App() {
   const runScan = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/scan`);
+      const res = await axios.get(`${API_BASE}/scan?target=${selectedTarget}`);
       setScanResult(res.data);
     } catch (err) {
-      alert("Scan failed. Is the backend running?");
+      alert(err.response?.data || "Scan failed.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const protectEvidence = async () => {
@@ -170,6 +174,19 @@ function App() {
         err.response?.data ||
           "Access Denied: Only Auditor or Admin can view audit logs.",
       );
+    }
+  };
+
+
+  const runSSHAttack = async () => {
+    setAttacking(true);
+    try {
+      const res = await axios.get(`${API_BASE}/attack/ssh`);
+      setAttackResult(res.data);
+    } catch (err) {
+      alert(err.response?.data || "SSH Attack simulation failed.");
+    } finally {
+      setAttacking(false);
     }
   };
 
@@ -269,6 +286,43 @@ function App() {
               </div>
             )}
           </div>
+
+          {/* Target Range Selection */}
+          <div className="mb-4">
+            <label className="text-xs font-semibold text-slate-400 block mb-1">
+              Select Range Target:
+            </label>
+            <select
+              value={selectedTarget}
+              onChange={(e) => setSelectedTarget(e.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="target-web">
+                Web Target (target-web) - Port 80 (Nginx)
+              </option>
+              <option value="target-ssh">
+                SSH Lab Server (target-ssh) - Port 22 (OpenSSH)
+              </option>
+            </select>
+          </div>
+
+          <button
+            onClick={runScan}
+            disabled={loading}
+            className="w-full mb-3 flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 font-semibold hover:bg-blue-700 transition-all disabled:opacity-50 text-sm"
+          >
+            {loading ? "Scanning Range..." : `Scan ${selectedTarget}`}
+          </button>
+
+          <button
+            onClick={runSSHAttack}
+            disabled={attacking}
+            className="w-full mb-3 flex items-center justify-center gap-2 rounded-lg border border-red-700 bg-red-950/30 px-4 py-3 font-semibold hover:bg-red-900/40 transition-all text-red-400 text-sm disabled:opacity-50"
+          >
+            {attacking
+              ? "Simulating Attack..."
+              : "Simulate SSH Brute-Force Attack"}
+          </button>
 
           {/* Searchable Encrypted Vault Query */}
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
@@ -583,78 +637,78 @@ function App() {
 
 function AuditTrail({ auditLogs, fetchAuditLogs }) {
   return (
-<div className="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-6">
-  <div className="mb-4 flex items-center justify-between border-b border-slate-800 pb-4">
-    <div>
-      <h2 className="text-xl font-semibold text-slate-200 flex items-center gap-2">
-        <Lock className="h-5 w-5 text-cyan-400" /> Immutable Hash-Chained Audit
-        Trail
-      </h2>
-      <p className="text-xs text-slate-400">
-        Cryptographically chained activity log (SHA-256 previous-hash
-        verification)
-      </p>
-    </div>
-    <button
-      onClick={fetchAuditLogs}
-      className="rounded bg-cyan-950 px-3 py-1.5 text-xs font-semibold text-cyan-300 border border-cyan-800 hover:bg-cyan-900 transition-all"
-    >
-      Refresh Audit Logs
-    </button>
-  </div>
+    <div className="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-6">
+      <div className="mb-4 flex items-center justify-between border-b border-slate-800 pb-4">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-200 flex items-center gap-2">
+            <Lock className="h-5 w-5 text-cyan-400" /> Immutable Hash-Chained
+            Audit Trail
+          </h2>
+          <p className="text-xs text-slate-400">
+            Cryptographically chained activity log (SHA-256 previous-hash
+            verification)
+          </p>
+        </div>
+        <button
+          onClick={fetchAuditLogs}
+          className="rounded bg-cyan-950 px-3 py-1.5 text-xs font-semibold text-cyan-300 border border-cyan-800 hover:bg-cyan-900 transition-all"
+        >
+          Refresh Audit Logs
+        </button>
+      </div>
 
-  {auditLogs.length > 0 ? (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-xs font-mono">
-        <thead className="bg-slate-950 text-slate-400 uppercase">
-          <tr>
-            <th className="p-3">#</th>
-            <th className="p-3">Timestamp</th>
-            <th className="p-3">User (Role)</th>
-            <th className="p-3">Action</th>
-            <th className="p-3">Status</th>
-            <th className="p-3">Current Hash (SHA-256)</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-800 text-slate-300">
-          {auditLogs.map((log) => (
-            <tr key={log.index} className="hover:bg-slate-800/40">
-              <td className="p-3 font-bold text-slate-500">{log.index}</td>
-              <td className="p-3 text-slate-400">
-                {new Date(log.timestamp).toLocaleTimeString()}
-              </td>
-              <td className="p-3 font-bold text-blue-400">
-                {log.username} ({log.role})
-              </td>
-              <td className="p-3">{log.action}</td>
-              <td className="p-3">
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    log.status === "ALLOWED"
-                      ? "bg-green-950 text-green-400 border border-green-800"
-                      : "bg-red-950 text-red-400 border border-red-800"
-                  }`}
-                >
-                  {log.status}
-                </span>
-              </td>
-              <td
-                className="p-3 truncate max-w-xs text-slate-400"
-                title={log.current_hash}
-              >
-                {(log.current_hash || "").substring(0, 16)}...
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {auditLogs.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs font-mono">
+            <thead className="bg-slate-950 text-slate-400 uppercase">
+              <tr>
+                <th className="p-3">#</th>
+                <th className="p-3">Timestamp</th>
+                <th className="p-3">User (Role)</th>
+                <th className="p-3">Action</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Current Hash (SHA-256)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800 text-slate-300">
+              {auditLogs.map((log) => (
+                <tr key={log.index} className="hover:bg-slate-800/40">
+                  <td className="p-3 font-bold text-slate-500">{log.index}</td>
+                  <td className="p-3 text-slate-400">
+                    {new Date(log.timestamp).toLocaleTimeString()}
+                  </td>
+                  <td className="p-3 font-bold text-blue-400">
+                    {log.username} ({log.role})
+                  </td>
+                  <td className="p-3">{log.action}</td>
+                  <td className="p-3">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        log.status === "ALLOWED"
+                          ? "bg-green-950 text-green-400 border border-green-800"
+                          : "bg-red-950 text-red-400 border border-red-800"
+                      }`}
+                    >
+                      {log.status}
+                    </span>
+                  </td>
+                  <td
+                    className="p-3 truncate max-w-xs text-slate-400"
+                    title={log.current_hash}
+                  >
+                    {(log.current_hash || "").substring(0, 16)}...
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="text-center py-6 text-slate-500 text-sm">
+          Click "Refresh Audit Logs" to load the immutable audit chain.
+        </div>
+      )}
     </div>
-  ) : (
-    <div className="text-center py-6 text-slate-500 text-sm">
-      Click "Refresh Audit Logs" to load the immutable audit chain.
-    </div>
-  )}
-</div>
   );
 }
 
