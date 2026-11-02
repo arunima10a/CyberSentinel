@@ -11,10 +11,19 @@ services:
     volumes:
       - ./evidence-vault:/app/evidence
       - ./analysis:/app/analysis
+      - ./flows:/app/flows
+      - ./secrets:/app/secrets
     networks:
       - cyber-net
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - ANALYZER_URL=http://target-web:5000
+      - CYBERSENTINEL_KEY_DIR=/app/secrets
     depends_on:
       - target-web
+      - traffic-analyzer
 
   # Vulnerable Target
   target-web:
@@ -26,6 +35,7 @@ services:
     build: ./analysis
     volumes:
       - ./evidence-vault:/app/evidence
+      - ./flows:/app/flows
     network_mode: "service:target-web"
     cap_add:
       - NET_ADMIN

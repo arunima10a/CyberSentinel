@@ -15,9 +15,9 @@ type DiscoveredService struct {
 }
 
 type ParsedAssessment struct {
-	Target  string              `json:"target"`
+	Target   string              `json:"target"`
 	Services []DiscoveredService `json:"services"`
-	Raw     string              `json:"raw"`
+	Raw      string              `json:"raw"`
 }
 
 func ParseNmapOutput(target, rawOutput string) ParsedAssessment {
@@ -27,7 +27,7 @@ func ParseNmapOutput(target, rawOutput string) ParsedAssessment {
 		Services: []DiscoveredService{},
 	}
 
-	re := regexp.MustCompile(`(?m)^(\d+)\/(tcp|udp)\s+(\w+)\s+(\S+)\s*(.*)$`)
+	re := regexp.MustCompile(`(?m)^(\d+)\/(tcp|udp)\s+(\S+)\s+(\S+)\s*(.*)$`)
 	matches := re.FindAllStringSubmatch(rawOutput, -1)
 
 	for _, match := range matches {

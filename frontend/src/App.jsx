@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
-import { Shield, Activity, Lock, Search, Terminal, AlertCircle } from 'lucide-react';
-import axios from 'axios';
+import React, { useEffect, useState } from "react";
+import {
+  Shield,
+  Activity,
+  Lock,
+  Search,
+  Terminal,
+  AlertCircle,
+} from "lucide-react";
+import axios from "axios";
 
 const API_BASE = "http://localhost:8080";
 
@@ -11,6 +18,46 @@ function App() {
   const [signature, setSignature] = useState(null);
   const [incidents, setIncidents] = useState([]);
   const [evaluating, setEvaluating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [sparkData, setSparkData] = useState(null);
+
+  const [sparkLoading, setSparkLoading] = useState(false);
+  const [apiOnline, setApiOnline] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const checkHealth = async () => {
+      try {
+        await axios.get(`${API_BASE}/health`, { timeout: 3000 });
+        if (active) setApiOnline(true);
+      } catch {
+        if (active) setApiOnline(false);
+      }
+    };
+
+    checkHealth();
+    const interval = window.setInterval(checkHealth, 10000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const runSparkAnalytics = async () => {
+    setSparkLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/analytics/spark`);
+      setSparkData(res.data);
+    } catch (err) {
+      alert(
+        "PySpark job failed. Ensure a scan has been run and backend is live.",
+      );
+    } finally {
+      setSparkLoading(false);
+    }
+  };
 
   const runScan = async () => {
     setLoading(true);
@@ -54,6 +101,22 @@ function App() {
     }
   };
 
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const res = await axios.get(
+        `${API_BASE}/search?q=${encodeURIComponent(searchQuery)}`,
+      );
+      setSearchResults(res.data);
+    } catch (err) {
+      alert("Search failed. Ensure backend is running.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 p-8 font-sans">
       {/* Header */}
@@ -63,9 +126,9 @@ function App() {
           <h1 className="text-3xl font-bold tracking-tight">CyberSentinel</h1>
         </div>
         <div className="flex gap-4">
-          <div className="flex items-center gap-2 rounded-full bg-green-500/10 px-4 py-1 text-sm font-medium text-green-400 border border-green-500/20">
-            <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-            System Online
+          <div className={`flex items-center gap-2 rounded-full px-4 py-1 text-sm font-medium border ${apiOnline ? "bg-green-500/10 text-green-400 border-green-500/20" : "bg-red-500/10 text-red-400 border-red-500/20"}`}>
+            <span className={`h-2 w-2 rounded-full ${apiOnline ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
+            {apiOnline ? "System Online" : "API Offline"}
           </div>
         </div>
       </header>
@@ -98,6 +161,16 @@ function App() {
             </button>
           </div>
         </div>
+        <button
+          onClick={runSparkAnalytics}
+          disabled={sparkLoading}
+          className="w-full flex items-center justify-center gap-2 rounded-lg border border-amber-600 bg-amber-950/30 px-4 py-3 font-semibold hover:bg-amber-900/40 transition-all text-amber-400 disabled:opacity-50 text-sm"
+        >
+          <Activity className="h-4 w-4" />
+          {sparkLoading
+            ? "Running PySpark Job..."
+            : "Run PySpark Big Data Analytics"}
+        </button>
 
         {/* Results Panel */}
         <div className="lg:col-span-2 space-y-6">
@@ -113,6 +186,202 @@ function App() {
             ) : (
               <div className="flex h-32 items-center justify-center text-slate-500 italic">
                 Waiting for scan initiation...
+              </div>
+            )}
+          </div>
+
+          {/* Searchable Encrypted Vault Query */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-purple-400">
+                <Search className="h-5 w-5" /> Search Encrypted Vault (Blind
+                Index)
+              </h2>
+              <span className="text-xs bg-purple-950 text-purple-300 px-2 py-1 rounded border border-purple-800">
+                Zero-Knowledge Search
+              </span>
+            </div>
+
+            <form onSubmit={handleSearch} className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Search encrypted records (e.g., target-web, 80, nginx, reconnaissance)..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-purple-500 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={searching}
+                className="rounded-lg bg-purple-600 px-5 py-2 font-semibold text-white hover:bg-purple-700 transition-all disabled:opacity-50 text-sm"
+              >
+                {searching ? "Generating Trapdoor..." : "Search"}
+              </button>
+            </form>
+
+            {searchResults && (
+              <div className="mt-4 rounded-lg bg-black/50 border border-slate-800 p-4 space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400">
+                    Trapdoor Token (HMAC-SHA256):
+                  </span>
+                  <span className="font-mono text-purple-400 truncate max-w-xs">
+                    {searchResults.trapdoor_token}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-xs border-t border-slate-800/60 pt-2">
+                  <span className="text-slate-400">
+                    Matching Encrypted Artifacts:
+                  </span>
+                  <span className="font-bold text-slate-200">
+                    {searchResults.matches_found} found
+                  </span>
+                </div>
+                {searchResults.matching_evidence.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {searchResults.matching_evidence.map((artifact) => (
+                      <li
+                        key={artifact}
+                        className="text-xs font-mono text-green-400 bg-slate-900 px-3 py-1.5 rounded border border-slate-800 flex items-center gap-2"
+                      >
+                        <Lock className="h-3 w-3 text-yellow-400" /> {artifact}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* PySpark Big Data Traffic Analytics Panel */}
+          <div className="mt-8 rounded-xl border border-amber-500/30 bg-slate-900 p-6">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2">
+                <Activity className="h-6 w-6 text-amber-400" />
+                <div>
+                  <h2 className="text-xl font-semibold text-amber-300">
+                    PySpark Distributed Flow Analytics
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Large-scale network traffic baseline & anomaly computation
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs bg-amber-950 text-amber-300 px-3 py-1 rounded border border-amber-800 font-mono">
+                Apache Spark Standalone
+              </span>
+            </div>
+
+            {sparkData ? (
+              <div className="space-y-6">
+                {/* Metrics Row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                    <span className="text-xs text-slate-400">
+                      Total Analyzed Flows
+                    </span>
+                    <p className="text-2xl font-bold font-mono text-amber-400">
+                      {sparkData.total_analyzed_flows}
+                    </p>
+                  </div>
+                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                    <span className="text-xs text-slate-400">Engine Core</span>
+                    <p className="text-sm font-semibold text-slate-200 mt-1">
+                      {sparkData.engine}
+                    </p>
+                  </div>
+                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                    <span className="text-xs text-slate-400">
+                      Active Anomalies
+                    </span>
+                    <p className="text-2xl font-bold font-mono text-red-400">
+                      {sparkData.anomalies_detected?.length || 0}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Top Talkers & Protocol Distribution */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  {/* Top Talkers */}
+                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                    <h3 className="font-semibold text-slate-300 mb-2">
+                      Top Talker Source IPs
+                    </h3>
+                    <ul className="space-y-2">
+                      {sparkData.top_talkers?.map((talker, idx) => (
+                        <li
+                          key={idx}
+                          className="flex justify-between items-center bg-slate-900 p-2 rounded border border-slate-800 font-mono"
+                        >
+                          <span className="text-slate-300">
+                            {talker.src_ip}
+                          </span>
+                          <span className="text-amber-400 font-bold">
+                            {talker.flow_count} packets
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Protocol Distribution */}
+                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                    <h3 className="font-semibold text-slate-300 mb-2">
+                      Protocol Distribution
+                    </h3>
+                    <ul className="space-y-2">
+                      {sparkData.protocol_distribution?.map((proto, idx) => (
+                        <li
+                          key={idx}
+                          className="flex justify-between items-center bg-slate-900 p-2 rounded border border-slate-800 font-mono"
+                        >
+                          <span className="text-slate-300">
+                            {proto.protocol}
+                          </span>
+                          <span className="text-amber-400 font-bold">
+                            {proto.count}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Spark Detected Anomalies */}
+                {sparkData.anomalies_detected?.length > 0 && (
+                  <div className="bg-red-950/20 border border-red-500/30 p-4 rounded-lg">
+                    <h3 className="font-semibold text-red-400 text-sm mb-3">
+                      Spark Anomaly Detection (Port Sweep Clustering)
+                    </h3>
+                    <div className="space-y-2">
+                      {sparkData.anomalies_detected.map((anomaly, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-slate-950 p-3 rounded border border-red-800/60 flex justify-between items-center text-xs"
+                        >
+                          <div>
+                            <span className="font-bold text-red-300">
+                              {anomaly.type}
+                            </span>
+                            <p className="text-slate-400 font-mono mt-0.5">
+                              Source: {anomaly.source_ip} probed{" "}
+                              {anomaly.unique_ports_targeted} unique ports (
+                              {anomaly.total_probes} total probes)
+                            </p>
+                          </div>
+                          <span className="bg-red-950 text-red-400 px-2 py-1 rounded font-bold border border-red-800">
+                            {anomaly.confidence}% Confidence
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-slate-500 text-sm">
+                Click "Run PySpark Big Data Analytics" to process network flows
+                with Apache Spark.
               </div>
             )}
           </div>
@@ -179,22 +448,32 @@ function App() {
 
             <div className="space-y-4">
               {incidents.map((inc, i) => (
-                <div key={i} className="flex items-start justify-between border-l-4 border-red-500 bg-slate-900 p-4 rounded-r">
+                <div
+                  key={i}
+                  className="flex items-start justify-between border-l-4 border-red-500 bg-slate-900 p-4 rounded-r"
+                >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-bold text-red-100">{inc.type}</h3>
-                      <span className="text-xs text-slate-400">({inc.confidence}% confidence)</span>
+                      <span className="text-xs text-slate-400">
+                        ({inc.confidence}% confidence)
+                      </span>
                     </div>
 
                     {/* Render the dynamic real-world description */}
                     {inc.description && (
-                      <p className="text-sm text-slate-300">{inc.description}</p>
+                      <p className="text-sm text-slate-300">
+                        {inc.description}
+                      </p>
                     )}
 
                     {/* Dynamic Evidence Tags */}
                     <div className="mt-2 flex flex-wrap gap-2">
                       {inc.evidence_tags?.map((tag) => (
-                        <span key={tag} className="text-[11px] font-mono bg-red-950/80 text-red-300 px-2 py-0.5 rounded border border-red-800/60">
+                        <span
+                          key={tag}
+                          className="text-[11px] font-mono bg-red-950/80 text-red-300 px-2 py-0.5 rounded border border-red-800/60"
+                        >
                           {tag}
                         </span>
                       ))}
@@ -209,7 +488,8 @@ function App() {
 
               {incidents.length === 0 && (
                 <div className="text-center py-6 text-slate-500 text-sm">
-                  No active incidents detected. Click "Re-evaluate Rules" after running a scan.
+                  No active incidents detected. Click "Re-evaluate Rules" after
+                  running a scan.
                 </div>
               )}
             </div>

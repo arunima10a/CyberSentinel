@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -17,9 +18,9 @@ func RunNmapScanWithCapture(target string) (ScanResult, error) {
 	timestamp := time.Now().Format("20060102_150405")
 	pcapPath := fmt.Sprintf("/app/evidence/capture_%s.pcap", timestamp)
 
-	captureCmd := exec.Command("tshark", "-i", "eth0", "-w", target)
+	captureCmd := exec.Command("tshark", "-i", "eth0", "-w", pcapPath)
 	if err := captureCmd.Start(); err != nil {
-		fmt.Println("Warning: tshark capture failed to start:", err)
+		fmt.Printf("ERROR: tshark capture failed to start on %s: %v\n", pcapPath, err)
 	} else {
 		fmt.Printf("[+] Packet capture initiated: %s (PID: %d)\n", pcapPath, captureCmd.Process.Pid)
 	}
@@ -31,7 +32,8 @@ func RunNmapScanWithCapture(target string) (ScanResult, error) {
 
 	if captureCmd.Process != nil {
 		time.Sleep(1 * time.Second)
-		_ = captureCmd.Process.Kill()
+		_ = captureCmd.Process.Signal(os.Interrupt)
+		_ = captureCmd.Wait()
 	}
 
 	if ScanErr != nil {

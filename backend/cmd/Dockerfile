@@ -1,24 +1,23 @@
 FROM golang:1.25.1-alpine
 
-RUN apk update && apk add --no-cache \
+RUN apk add --no-cache \
     nmap \
+    nmap-nselibs \
     nmap-scripts \
     python3 \
     py3-pip \
-    tshark
+    tshark  \
+    openjdk17-jre-headless
 
-RUN pip install --no-cache-dir pyshark --break-system-packages
+RUN pip install --no-cache-dir pyshark pyspark pandas --break-system-packages
 
 WORKDIR /app
 
-COPY go.mod ./
-
+COPY go.mod go.sum* ./
 RUN go mod download
 
 COPY . .
 
-RUN go build -o main ./cmd/main.go
+RUN go build -o /usr/local/bin/api-gateway ./cmd
 
-EXPOSE 8080
-
-CMD ["./main"]
+CMD ["api-gateway"]
