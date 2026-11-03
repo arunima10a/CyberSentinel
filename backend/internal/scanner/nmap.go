@@ -33,7 +33,8 @@ func RunNmapScanWithCapture(target string) (ScanResult, error) {
 	if captureCmd.Process != nil {
 		time.Sleep(1 * time.Second)
 		_ = captureCmd.Process.Signal(os.Interrupt)
-		_ = captureCmd.Wait()
+		time.Sleep(500 * time.Millisecond)
+		_ = captureCmd.Process.Kill()
 	}
 
 	if ScanErr != nil {

@@ -47,6 +47,10 @@ services:
     build: ./lab-targets/web-vulnerable
     networks:
       - cyber-net
+    ports:
+      - "80"
+      - "8080"
+      - "21"
 
   traffic-analyzer:
     build: ./analysis
@@ -64,6 +68,10 @@ services:
     build: ./lab-targets/ssh-target
     networks:
       - cyber-net
+    ports:
+      - "22"
+      - "2222"
+      - "111"
       
 volumes:
   postgres_data:
